@@ -27,6 +27,12 @@
          "id":1,
          "name":"\u0421\u0442\u0435\u043d\u0430 \u0434\u043e\u043c\u0430 \u043d\u0438\u0437",
          "opacity":1,
+         "properties":[
+                {
+                 "name":"zone",
+                 "type":"string",
+                 "value":"home"
+                }],
          "type":"tilelayer",
          "visible":true,
          "width":30,

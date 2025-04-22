@@ -3,6 +3,7 @@
     "width": 1200,
     "height": 1200
   },
+  "side_panel_width": 200,
   "background_color": [20, 20, 40],
   "tileset_path": "mnt/data/Modern_Interiors/Modern tiles_Free/Interiors_free/48x48/Room_Builder_free_48x48.png",
   "adam_sprite_path": "mnt/data/Modern_Interiors/Modern tiles_Free/Characters_free/Adam_run_16x16.png",
@@ -15,5 +16,6 @@
   "agent_start": {
   "col": 10,
   "row": 12
-  }
+  },
+  "adam_start": { "col": 15, "row": 12 }
 }
