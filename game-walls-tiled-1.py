@@ -7,6 +7,7 @@ import pygame, sys, math, json
 with open("config.json", encoding="utf-8") as f:
     cfg = json.load(f)
 
+
 WINDOW_WIDTH     = cfg["window_size"]["width"]
 WINDOW_HEIGHT    = cfg["window_size"]["height"]
 SIDE_PANEL_WIDTH = cfg["side_panel_width"]
@@ -71,7 +72,7 @@ for layer in map_data["layers"]:
                     zone_name = prop["value"]
                     rect = pygame.Rect(obj["x"], obj["y"], obj["width"], obj["height"])
                     zone_rects[zone_name] = rect
-
+print("Зоны:", zone_rects)
 # === Спрайты ===
 FRAME_W, FRAME_H = 16, 32
 SCALE = 2
@@ -185,7 +186,7 @@ while running:
         adam_y += dy
 
     # === Мотивация агента ===
-    if is_in_zone("home", agent_x, agent_y):
+    if is_in_zone("home", agent_x, agent_y - SH / 2):
         agent_state["time_indoors"] += dt
         agent_state["time_outdoors"] = 0
         agent_state["want_to_explore"] += dt * 0.5
@@ -269,7 +270,17 @@ while running:
         text = font.render(line, True, (255, 255, 255))
         screen.blit(text, (panel_x, 30 + i*30))
 
+    # === Визуализация зоны "home"
+    home_rect = zone_rects.get("home")
+    if home_rect:
+        surface = pygame.Surface((home_rect.w, home_rect.h), pygame.SRCALPHA)
+        surface.fill((0, 255, 255, 80))  # Прозрачный синий
+        screen.blit(surface, (home_rect.x, home_rect.y))
+        label = font.render("home", True, (255, 255, 255))
+        screen.blit(label, (home_rect.x + 4, home_rect.y + 4))
+
     pygame.display.flip()
+
 
 pygame.quit()
 sys.exit()
