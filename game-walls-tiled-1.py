@@ -1,4 +1,4 @@
-# game_with_ai_agent.py — версия с PyTorch-моделью
+# game_with_ai_agent.py — финальная рабочая версия с картой, агентом и физикой
 
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = "1800,100"
@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-# 1) Конфиг
+# === Конфиг ===
 with open("config.json", encoding="utf-8") as f:
     cfg = json.load(f)
 
@@ -68,7 +68,7 @@ for tile in ts.get("tiles", []):
     if shapes:
         coll_shapes[gid] = shapes
 
-# Спрайты Адама
+# === Спрайты Адама ===
 FRAME_W, FRAME_H = 16, 32
 SCALE            = 2
 SW, SH           = FRAME_W * SCALE, FRAME_H * SCALE
@@ -129,7 +129,10 @@ else:
     model = None
     print("[!] Модель не найдена — агент будет молчать")
 
-# === Функции ===
+# === Вспомогательные функции ===
+def is_walkable(gid):
+    return gid not in coll_shapes
+
 def extract_vision(cx, cy):
     result = []
     for dy in range(-2, 3):
@@ -138,9 +141,10 @@ def extract_vision(cx, cy):
             tx, ty = cx + dx, cy + dy
             if 0 <= tx < MAP_COLS and 0 <= ty < MAP_ROWS:
                 gid = map_gids[ty * MAP_COLS + tx]
+                walkable = 1 if is_walkable(gid) else 0
             else:
-                gid = 0
-            row.append(gid)
+                walkable = 0
+            row.append(walkable)
         result.append(row)
     return result
 
@@ -160,7 +164,6 @@ def model_predict_action(state):
     if not model:
         return None
     flat = np.array(sum(state, []), dtype=np.float32)
-    flat /= flat.max() if flat.max() > 0 else 1
     tensor = torch.tensor(flat).unsqueeze(0)
     with torch.no_grad():
         output = model(tensor)
@@ -173,6 +176,7 @@ running = True
 
 while running:
     dt = clock.tick(60) / 1000
+
     for ev in pygame.event.get():
         if ev.type == pygame.QUIT:
             running = False
@@ -186,6 +190,15 @@ while running:
             if ev.key == pygame.K_F5:
                 save_demo_buffer()
 
+    # === Рендер карты ===
+    screen.fill(BG_COLOR)
+    for r in range(MAP_ROWS):
+        for c in range(MAP_COLS):
+            gid = map_gids[r*MAP_COLS + c]
+            if gid and gid in tiles:
+                screen.blit(tiles[gid], (c*TILE_W, r*TILE_H))
+
+    # === Управление Адамом ===
     keys = pygame.key.get_pressed()
     dx = dy = 0
     if keys[pygame.K_LEFT]:   dx -= speed
@@ -236,6 +249,7 @@ while running:
         adam_x += dx
         adam_y += dy
 
+    # === Запись поведения ===
     if recording:
         col = int(adam_x // TILE_W)
         row = int(adam_y // TILE_H)
@@ -244,6 +258,7 @@ while running:
         if action:
             demo_buffer.append({"state": state, "action": action})
 
+    # === Анимация Адама ===
     if moving:
         anim_timer += ANIM_SPEED
         if anim_timer >= 1:
@@ -252,6 +267,7 @@ while running:
     else:
         frame_index = 0
 
+    # === Движение агента с проверкой коллизий ===
     if repeating and model:
         col = int(agent_x // TILE_W)
         row = int(agent_y // TILE_H)
@@ -262,20 +278,44 @@ while running:
         if action == "right": ax = speed
         if action == "up":    ay = -speed
         if action == "down":  ay = speed
-        agent_x += ax
-        agent_y += ay
-        agent_x = max(0, min(agent_x, MAP_COLS * TILE_W - 1))
-        agent_y = max(0, min(agent_y, MAP_ROWS * TILE_H - 1))
 
-    screen.fill(BG_COLOR)
+        agent_foot = pygame.Rect(
+            agent_x + ax - FOOT_W/2,
+            agent_y + ay - FOOT_H,
+            FOOT_W, FOOT_H
+        )
 
-    for r in range(MAP_ROWS):
-        for c in range(MAP_COLS):
-            gid = map_gids[r*MAP_COLS + c]
-            img = tiles.get(gid)
-            if img:
-                screen.blit(img, (c*TILE_W, r*TILE_H))
+        a_c0 = max(0, agent_foot.left   // TILE_W)
+        a_c1 = min(MAP_COLS, agent_foot.right  // TILE_W + 1)
+        a_r0 = max(0, agent_foot.top    // TILE_H)
+        a_r1 = min(MAP_ROWS, agent_foot.bottom // TILE_H + 1)
 
+        agent_collision = False
+        for r in range(a_r0, a_r1):
+            for c in range(a_c0, a_c1):
+                gid = map_gids[r*MAP_COLS + c]
+                if gid == 0: continue
+                shapes = coll_shapes.get(gid)
+                if shapes:
+                    for s in shapes:
+                        abs_r = pygame.Rect(c*TILE_W + s.x, r*TILE_H + s.y, s.w, s.h)
+                        if agent_foot.colliderect(abs_r):
+                            agent_collision = True
+                            break
+                else:
+                    abs_r = pygame.Rect(c*TILE_W, r*TILE_H, TILE_W, TILE_H)
+                    if agent_foot.colliderect(abs_r):
+                        agent_collision = True
+                if agent_collision: break
+            if agent_collision: break
+
+        if not agent_collision:
+            agent_x += ax
+            agent_y += ay
+            agent_x = max(0, min(agent_x, MAP_COLS * TILE_W - 1))
+            agent_y = max(0, min(agent_y, MAP_ROWS * TILE_H - 1))
+
+    # === Отрисовка спрайтов ===
     frame = adam_frames[current_dir][frame_index]
     screen.blit(frame, (adam_x - SW/2, adam_y - SH))
     pygame.draw.rect(screen, (255, 0, 0), (agent_x - SW/2, agent_y - SH, SW, SH), 2)

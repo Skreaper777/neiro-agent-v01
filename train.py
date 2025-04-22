@@ -1,4 +1,4 @@
-# train.py — обучение нейросети для агента
+# train.py — обновлён для обучения на маске проходимости
 
 import json
 import torch
@@ -24,15 +24,13 @@ idx_to_action = ["left", "right", "up", "down"]
 X = []
 y = []
 for record in data:
+    # теперь state — бинарная маска проходимости 5x5
     flat = sum(record["state"], [])  # flatten 5x5 -> 25
     X.append(flat)
     y.append(action_to_idx[record["action"]])
 
 X = np.array(X, dtype=np.float32)
 y = np.array(y, dtype=np.int64)
-
-# Нормализация входов (GID могут быть большими)
-X /= X.max()
 
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -45,7 +43,7 @@ class AgentNet(nn.Module):
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(64, 4)  # 4 действия
+            nn.Linear(64, 4)
         )
 
     def forward(self, x):
