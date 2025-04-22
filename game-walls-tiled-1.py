@@ -21,6 +21,9 @@ TILE_W, TILE_H   = cfg["tile_size"]["w"], cfg["tile_size"]["h"]
 FOOT_W_RATIO = cfg["foot_collision"]["width_ratio"]
 FOOT_H_RATIO = cfg["foot_collision"]["height_ratio"]
 
+AGENT_COL = cfg["agent_start"]["col"]
+AGENT_ROW = cfg["agent_start"]["row"]
+
 pygame.init()
 screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Адам и Агент")
@@ -86,8 +89,8 @@ start_col = MAP_COLS // 2
 adam_x = start_col * TILE_W + TILE_W//2
 adam_y = (MAP_ROWS - 1) * TILE_H
 
-agent_x = adam_x + TILE_W * 2
-agent_y = adam_y
+agent_x = AGENT_COL * TILE_W + TILE_W // 2
+agent_y = AGENT_ROW * TILE_H + TILE_H // 2
 
 frame_index = 0
 anim_timer  = 0
@@ -128,7 +131,7 @@ def find_most_similar_action(state, buffer):
         if dist < min_dist:
             min_dist = dist
             best = record["action"]
-    return best
+    return best if min_dist < 30 else None  # Порог схожести
 
 clock = pygame.time.Clock()
 running = True
@@ -146,7 +149,6 @@ while running:
                 repeating = not repeating
                 print("[REPEAT ON]" if repeating else "[REPEAT OFF]")
 
-    # Управление Адамом
     keys = pygame.key.get_pressed()
     dx = dy = 0
     if keys[pygame.K_LEFT]:   dx -= speed
@@ -205,7 +207,6 @@ while running:
         if action:
             demo_buffer.append({"state": state, "action": action})
 
-    # Обновление анимации
     if moving:
         anim_timer += ANIM_SPEED
         if anim_timer >= 1:
@@ -214,7 +215,6 @@ while running:
     else:
         frame_index = 0
 
-    # Агент-имитатор
     if repeating and demo_buffer:
         col = int(agent_x // TILE_W)
         row = int(agent_y // TILE_H)
@@ -228,7 +228,10 @@ while running:
         agent_x += ax
         agent_y += ay
 
-    # Отрисовка
+        # Ограничение в пределах карты
+        agent_x = max(0, min(agent_x, MAP_COLS * TILE_W - 1))
+        agent_y = max(0, min(agent_y, MAP_ROWS * TILE_H - 1))
+
     screen.fill(BG_COLOR)
 
     for r in range(MAP_ROWS):
@@ -240,8 +243,8 @@ while running:
 
     frame = adam_frames[current_dir][frame_index]
     screen.blit(frame, (adam_x - SW/2, adam_y - SH))
-
     pygame.draw.rect(screen, (255, 0, 0), (agent_x - SW/2, agent_y - SH, SW, SH), 2)
+
     pygame.display.flip()
 
 pygame.quit()
