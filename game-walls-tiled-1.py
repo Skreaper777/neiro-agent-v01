@@ -1,7 +1,11 @@
+# game_with_ai_agent.py — модифицированная версия с записью и имитирующим агентом
+
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = "1800,100"
 
 import pygame, sys, math, json
+from collections import deque
+import copy
 
 # 1) Конфиг
 with open("config.json", encoding="utf-8") as f:
@@ -14,28 +18,22 @@ TILESET_PATH     = cfg["tileset_path"]
 ADAM_SPRITE_PATH = cfg["adam_sprite_path"]
 TILE_W, TILE_H   = cfg["tile_size"]["w"], cfg["tile_size"]["h"]
 
-# Новые настройки «ступней»
 FOOT_W_RATIO = cfg["foot_collision"]["width_ratio"]
 FOOT_H_RATIO = cfg["foot_collision"]["height_ratio"]
 
-# 2) Инициализация Pygame и окно
 pygame.init()
 screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-pygame.display.set_caption("Комната и Адам")
+pygame.display.set_caption("Адам и Агент")
 
-# 3) Загрузка и парсинг map.json (включая tileset с objectgroup)
 with open("map.json", encoding="utf-8") as f:
     map_data = json.load(f)
 
 MAP_COLS = map_data["width"]
 MAP_ROWS = map_data["height"]
-if map_data["tilewidth"] != TILE_W or map_data["tileheight"] != TILE_H:
-    raise RuntimeError("Несовпадение размеров тайлов")
 
 layer    = next(l for l in map_data["layers"] if l["type"] == "tilelayer")
 map_gids = layer["data"]
 
-# 4) Вырезаем все тайлы и парсим collision‑shapes
 tileset    = pygame.image.load(TILESET_PATH).convert_alpha()
 ts         = map_data["tilesets"][0]
 firstgid   = ts["firstgid"]
@@ -62,7 +60,7 @@ for tile in ts.get("tiles", []):
     if shapes:
         coll_shapes[gid] = shapes
 
-# 5) Спрайты Адама
+# Спрайты Адама
 FRAME_W, FRAME_H = 16, 32
 SCALE            = 2
 SW, SH           = FRAME_W * SCALE, FRAME_H * SCALE
@@ -80,30 +78,75 @@ def slice_adam(sheet):
 
 adam_frames = slice_adam(adam_sheet)
 
-# **Зона столкновений «ступней»**
 FOOT_W = SW * FOOT_W_RATIO
 FOOT_H = SH * FOOT_H_RATIO
 
-# 6) Стартовые координаты
-door_c = MAP_COLS // 2
-adam_x = door_c * TILE_W + TILE_W//2
+# Начальные координаты
+start_col = MAP_COLS // 2
+adam_x = start_col * TILE_W + TILE_W//2
 adam_y = (MAP_ROWS - 1) * TILE_H
+
+agent_x = adam_x + TILE_W * 2
+agent_y = adam_y
 
 frame_index = 0
 anim_timer  = 0
 current_dir = 3
 
+# --- Новое: запись и имитатор ---
+recording = False
+repeating = False
+demo_buffer = []
+
+def extract_vision(cx, cy):
+    result = []
+    for dy in range(-2, 3):
+        row = []
+        for dx in range(-2, 3):
+            tx, ty = cx + dx, cy + dy
+            if 0 <= tx < MAP_COLS and 0 <= ty < MAP_ROWS:
+                gid = map_gids[ty * MAP_COLS + tx]
+            else:
+                gid = 0
+            row.append(gid)
+        result.append(row)
+    return result
+
+def get_action_from_keys(keys):
+    if keys[pygame.K_LEFT]:  return "left"
+    if keys[pygame.K_RIGHT]: return "right"
+    if keys[pygame.K_UP]:    return "up"
+    if keys[pygame.K_DOWN]:  return "down"
+    return None
+
+def find_most_similar_action(state, buffer):
+    best = None
+    min_dist = float('inf')
+    for record in buffer:
+        s2 = record["state"]
+        dist = sum(abs(a - b) for r1, r2 in zip(state, s2) for a, b in zip(r1, r2))
+        if dist < min_dist:
+            min_dist = dist
+            best = record["action"]
+    return best
+
 clock = pygame.time.Clock()
 running = True
 
-# 7) Игровой цикл
 while running:
     dt = clock.tick(60) / 1000
     for ev in pygame.event.get():
         if ev.type == pygame.QUIT:
             running = False
+        if ev.type == pygame.KEYDOWN:
+            if ev.key == pygame.K_r:
+                recording = not recording
+                print("[REC]" if recording else "[STOP]")
+            if ev.key == pygame.K_t:
+                repeating = not repeating
+                print("[REPEAT ON]" if repeating else "[REPEAT OFF]")
 
-    # движение
+    # Управление Адамом
     keys = pygame.key.get_pressed()
     dx = dy = 0
     if keys[pygame.K_LEFT]:   dx -= speed
@@ -115,20 +158,17 @@ while running:
         dx, dy = dx/n*speed, dy/n*speed
     moving = dx or dy
 
-    # направление анимации
     if dx>0:     current_dir=0
     elif dx<0:   current_dir=2
     elif dy<0:   current_dir=1
     elif dy>0:   current_dir=3
 
-    # новая «ступневая» область
     foot_rect = pygame.Rect(
         adam_x + dx - FOOT_W/2,
         adam_y + dy - FOOT_H,
         FOOT_W, FOOT_H
     )
 
-    # коллизии с фоллбэком
     collision = False
     c0 = max(0, foot_rect.left   // TILE_W)
     c1 = min(MAP_COLS, foot_rect.right  // TILE_W + 1)
@@ -139,13 +179,10 @@ while running:
         for c in range(c0, c1):
             gid = map_gids[r*MAP_COLS + c]
             if gid == 0: continue
-
             shapes = coll_shapes.get(gid)
             if shapes:
                 for s in shapes:
-                    abs_r = pygame.Rect(c*TILE_W + s.x,
-                                        r*TILE_H + s.y,
-                                        s.w, s.h)
+                    abs_r = pygame.Rect(c*TILE_W + s.x, r*TILE_H + s.y, s.w, s.h)
                     if foot_rect.colliderect(abs_r):
                         collision = True
                         break
@@ -153,7 +190,6 @@ while running:
                 abs_r = pygame.Rect(c*TILE_W, r*TILE_H, TILE_W, TILE_H)
                 if foot_rect.colliderect(abs_r):
                     collision = True
-
             if collision: break
         if collision: break
 
@@ -161,7 +197,15 @@ while running:
         adam_x += dx
         adam_y += dy
 
-    # обновление анимации
+    if recording:
+        col = int(adam_x // TILE_W)
+        row = int(adam_y // TILE_H)
+        state = extract_vision(col, row)
+        action = get_action_from_keys(keys)
+        if action:
+            demo_buffer.append({"state": state, "action": action})
+
+    # Обновление анимации
     if moving:
         anim_timer += ANIM_SPEED
         if anim_timer >= 1:
@@ -170,7 +214,21 @@ while running:
     else:
         frame_index = 0
 
-    # отрисовка
+    # Агент-имитатор
+    if repeating and demo_buffer:
+        col = int(agent_x // TILE_W)
+        row = int(agent_y // TILE_H)
+        state = extract_vision(col, row)
+        action = find_most_similar_action(state, demo_buffer)
+        ax = ay = 0
+        if action == "left":  ax = -speed
+        if action == "right": ax = speed
+        if action == "up":    ay = -speed
+        if action == "down":  ay = speed
+        agent_x += ax
+        agent_y += ay
+
+    # Отрисовка
     screen.fill(BG_COLOR)
 
     for r in range(MAP_ROWS):
@@ -183,6 +241,7 @@ while running:
     frame = adam_frames[current_dir][frame_index]
     screen.blit(frame, (adam_x - SW/2, adam_y - SH))
 
+    pygame.draw.rect(screen, (255, 0, 0), (agent_x - SW/2, agent_y - SH, SW, SH), 2)
     pygame.display.flip()
 
 pygame.quit()

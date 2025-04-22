@@ -11,5 +11,9 @@
   "foot_collision": {
     "width_ratio": 0.95,
     "height_ratio": 0.25
+  },
+  "agent_start": {
+  "col": 10,
+  "row": 15
   }
 }
