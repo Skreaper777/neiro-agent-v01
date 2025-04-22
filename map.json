@@ -45,8 +45,8 @@
          "name":"zones",
          "objects":[
                 {
-                 "height":335,
-                 "id":2,
+                 "height":95.3333333333333,
+                 "id":4,
                  "name":"",
                  "properties":[
                         {
@@ -57,9 +57,9 @@
                  "rotation":0,
                  "type":"",
                  "visible":true,
-                 "width":452,
-                 "x":231,
-                 "y":395
+                 "width":368,
+                 "x":276,
+                 "y":505.333333333333
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -68,7 +68,7 @@
          "y":0
         }],
  "nextlayerid":3,
- "nextobjectid":3,
+ "nextobjectid":5,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.11.2",
